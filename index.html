@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Synapse Room — Ephemeral Collaborative Canvas, Chat, P2P Stream & Perspectives</title>
+  
+  <meta name="description" content="Zero-cost, 100% ephemeral real-time collaboration across devices and screens. Features a Figma-style whiteboard, WhatsApp-style chat, 5GB+ on-demand P2P file streaming, follow-user perspectives, and pro multi-format exporter.">
+
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- SVG Brand Definitions -->
+  <svg style="display: none;">
+    <defs>
+      <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#6366f1" />
+        <stop offset="50%" stop-color="#8b5cf6" />
+        <stop offset="100%" stop-color="#ec4899" />
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div id="app-container">
+    <!-- Top Navigation Bar -->
+    <header class="top-bar">
+      <!-- Left: Brand Logo & Room ID -->
+      <div class="brand-section">
+        <div class="logo-badge">
+          <svg class="logo-icon-svg" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="url(#brandGradient)" stroke-width="2.5" fill="none"/>
+            <circle cx="8" cy="10" r="2.5" fill="#6366f1"/>
+            <circle cx="16" cy="10" r="2.5" fill="#ec4899"/>
+            <path d="M7 15 Q12 18 17 15" stroke="url(#brandGradient)" stroke-width="2" stroke-linecap="round" fill="none"/>
+          </svg>
+          <span>Synapse Room</span>
+        </div>
+
+        <div class="status-dot-indicator" id="connection-status-dot" title="Global Cloud WSS Sync Active"></div>
+
+        <div class="room-badge-container">
+          <span class="room-id-text" id="current-room-id">CONNECTING...</span>
+          <button class="copy-room-btn" id="copy-room-link-btn" title="Copy Invite Link">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span>Invite</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Center: Dual Timers (Call Count-Up & Sprint Countdown) -->
+      <div class="timers-center-group">
+        <!-- 1. Call Duration Count-Up Pill -->
+        <div class="call-timer-badge" title="Active room call duration">
+          <div class="call-pulse-dot"></div>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+          </svg>
+          <span id="call-duration-display">00:00</span>
+        </div>
+
+        <!-- 2. Sprint / Pomodoro Countdown Timer Pill -->
+        <div class="timer-container" title="Synchronized sprint timer">
+          <div class="timer-ring-wrapper">
+            <svg class="timer-svg" viewBox="0 0 24 24">
+              <circle class="timer-bg-circle" cx="12" cy="12" r="9"/>
+              <circle class="timer-progress-circle" id="timer-progress-ring" cx="12" cy="12" r="9"/>
+            </svg>
+          </div>
+          <span class="timer-display" id="timer-display">25:00</span>
+          <button class="timer-action-btn" id="timer-toggle-btn" title="Start/Pause Timer">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </button>
+          <button class="timer-action-btn" id="timer-reset-btn" title="Reset Timer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+          </button>
+          <button class="timer-action-btn" id="timer-settings-btn" title="Timer Settings">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right: Peers Avatar Stack, Theme, Drawer Toggle -->
+      <div class="top-actions">
+        <div class="avatar-stack" id="avatar-stack-container" title="Collaborators (Click avatar to follow perspective)">
+          <!-- Avatars injected -->
+        </div>
+        <span style="font-size: 0.76rem; color: var(--text-muted); margin-right: 4px;" id="active-peers-count">1 online</span>
+
+        <button class="icon-btn" id="toggle-theme-btn" title="Toggle Dark/Light Theme">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+
+        <button class="icon-btn active" id="toggle-sidebar-btn" title="Toggle Sidebar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="15" y1="3" x2="15" y2="21"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Workspace Body: Whiteboard Canvas + Collapsible 3-Tab Column -->
+    <main class="workspace-body">
+      <!-- Whiteboard Stage -->
+      <section class="canvas-stage" id="canvas-stage-wrapper">
+        <canvas id="whiteboard-canvas"></canvas>
+        <div id="canvas-overlay"></div>
+
+        <!-- Top Left Canvas Controls HUD (Undo, Redo, Zoom, Clear, Pro Export) -->
+        <div class="canvas-hud-top">
+          <button class="hud-btn" id="canvas-undo-btn" title="Undo (Ctrl+Z)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 7v6h6"></path>
+              <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13"></path>
+            </svg>
+          </button>
+          <button class="hud-btn" id="canvas-redo-btn" title="Redo (Ctrl+Y)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 7v6h-6"></path>
+              <path d="M3 17a9 9 0 019-9 9 9 0 016 2.3L21 13"></path>
+            </svg>
+          </button>
+
+          <div class="hud-separator"></div>
+
+          <div class="zoom-hud">
+            <button class="hud-btn" id="zoom-out-btn" title="Zoom Out">-</button>
+            <span class="zoom-level-text" id="zoom-percentage" title="Click to Reset Zoom">100%</span>
+            <button class="hud-btn" id="zoom-in-btn" title="Zoom In">+</button>
+          </div>
+
+          <div class="hud-separator"></div>
+
+          <button class="hud-btn" id="canvas-clear-btn" title="Clear Canvas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span>Clear</span>
+          </button>
+
+          <!-- Pro Exporter Button -->
+          <button class="hud-btn" id="canvas-export-btn" title="Open Multi-Format Pro Exporter" style="color: var(--primary); font-weight: 600;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Pro Export</span>
+          </button>
+        </div>
+
+        <!-- Figma-Style Floating Bottom Toolbar -->
+        <div class="floating-toolbar" id="main-floating-toolbar">
+          <button class="tool-btn active" data-tool="brush" title="Pencil / Freehand Brush (B)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+              <path d="M2 2l7.586 7.586"></path>
+              <circle cx="11" cy="11" r="2"></circle>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="highlighter" title="Highlighter (M)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m9 11-6 6v3h3l6-6"/>
+              <path d="m22 2-2.5 2.5a2.12 2.12 0 0 0 0 3l2.5 2.5"/>
+              <path d="m14 6 4 4"/>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="rectangle" title="Rectangle Shape">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="ellipse" title="Circle / Ellipse Shape">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="line" title="Straight Line">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="19" x2="19" y2="5"></line>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="arrow" title="Directional Arrow">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="19" x2="19" y2="5"></line>
+              <polyline points="10 5 19 5 19 14"></polyline>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="sticky" title="FigJam Sticky Note (S)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/>
+              <path d="M15 3v6h6"/>
+            </svg>
+          </button>
+
+          <!-- Canvas Text Box Tool -->
+          <button class="tool-btn" data-tool="text" title="Text Box (T)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 7 4 4 20 4 20 7"></polyline>
+              <line x1="9" y1="20" x2="15" y2="20"></line>
+              <line x1="12" y1="4" x2="12" y2="20"></line>
+            </svg>
+          </button>
+
+          <!-- Interactive Hyperlink Tool -->
+          <button class="tool-btn" data-tool="hyperlink" title="Hyperlink / File Ref (L)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="eraser" title="Eraser (E)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
+              <path d="M22 21H7"></path>
+              <path d="m5 11 9 9"></path>
+            </svg>
+          </button>
+
+          <button class="tool-btn" data-tool="pan" title="Hand / Pan Canvas (H or Hold Space)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 11V6a2 2 0 0 0-4 0v5"></path>
+              <path d="M14 10V4a2 2 0 0 0-4 0v7"></path>
+              <path d="M10 10.5V6a2 2 0 0 0-4 0v8"></path>
+              <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+            </svg>
+          </button>
+
+          <div class="tool-separator"></div>
+
+          <!-- Color Swatch Trigger -->
+          <button class="color-swatch-btn" id="active-color-btn" style="background-color: #6366f1;" title="Choose Color & Stroke"></button>
+
+          <!-- Canva-Style Color & Stroke Popover -->
+          <div class="color-palette-popover hidden" id="color-palette-popover">
+            <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Color Palette</span>
+            <div class="palette-grid">
+              <div class="swatch-item selected" style="background: #6366f1;" data-color="#6366f1"></div>
+              <div class="swatch-item" style="background: #ec4899;" data-color="#ec4899"></div>
+              <div class="swatch-item" style="background: #10b981;" data-color="#10b981"></div>
+              <div class="swatch-item" style="background: #f59e0b;" data-color="#f59e0b"></div>
+              <div class="swatch-item" style="background: #06b6d4;" data-color="#06b6d4"></div>
+              <div class="swatch-item" style="background: #ef4444;" data-color="#ef4444"></div>
+              <div class="swatch-item" style="background: #8b5cf6;" data-color="#8b5cf6"></div>
+              <div class="swatch-item" style="background: #fef08a;" data-color="#fef08a"></div>
+              <div class="swatch-item" style="background: #ffffff;" data-color="#ffffff"></div>
+              <div class="swatch-item" style="background: #1e293b;" data-color="#1e293b"></div>
+            </div>
+
+            <span style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-top: 4px;">Stroke Weight</span>
+            <div class="stroke-width-selector">
+              <button class="stroke-pill" data-width="2">Thin</button>
+              <button class="stroke-pill selected" data-width="3">Med</button>
+              <button class="stroke-pill" data-width="6">Bold</button>
+              <button class="stroke-pill" data-width="12">Heavy</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: 3-Tabs (Chat, 5GB+ P2P Files, and Collaborators Perspectives) -->
+      <aside class="sidebar-drawer" id="sidebar-drawer">
+        <!-- Mobile Drawer Close Header -->
+        <div class="sidebar-mobile-header">
+          <span class="sidebar-mobile-title">Workspace Panel</span>
+          <button class="mobile-drawer-close-btn" id="close-sidebar-mobile-btn" title="Close Panel">&times;</button>
+        </div>
+
+        <nav class="sidebar-tabs">
+          <button class="tab-btn active" id="tab-chat-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>Chat</span>
+            <span class="badge-counter" id="chat-unread-badge" style="display: none;">0</span>
+          </button>
+
+          <button class="tab-btn" id="tab-files-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+              <polyline points="13 2 13 9 20 9"></polyline>
+            </svg>
+            <span>Files</span>
+            <span class="badge-counter" id="files-count-badge" style="display: none;">0</span>
+          </button>
+
+          <!-- Collaborators Perspective Switcher Tab -->
+          <button class="tab-btn" id="tab-users-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span>Users</span>
+            <span class="badge-counter" id="users-count-badge">1</span>
+          </button>
+        </nav>
+
+        <div class="tab-content-container">
+          <!-- 1. Chat Pane -->
+          <div class="tab-pane" id="chat-pane">
+            <div class="chat-messages-container" id="chat-messages">
+              <div style="align-self: center; font-size: 0.72rem; color: var(--text-muted); background: var(--bg-tertiary); padding: 4px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border-subtle); margin-top: 4px;">
+                🔒 Ephemeral room session started. Messages exist only in this room.
+              </div>
+            </div>
+
+            <div class="typing-indicator-bar" id="typing-indicator-bar" style="visibility: hidden;"></div>
+
+            <div class="chat-input-bar">
+              <input type="text" class="chat-input-field" id="chat-input-text" placeholder="Type a message..." autocomplete="off">
+              <button class="send-msg-btn" id="send-message-btn" title="Send message">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. Files Pane (5GB+ On-Demand P2P Stream) -->
+          <div class="tab-pane hidden" id="files-pane">
+            <div class="files-container">
+              <div class="file-dropzone" id="file-dropzone">
+                <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <div class="dropzone-title">Drop any file here (Up to 5GB+)</div>
+                <div class="dropzone-subtitle">Zero cloud storage • Streams P2P on-demand</div>
+                <input type="file" id="hidden-file-input" style="display: none;" multiple>
+              </div>
+
+              <div class="file-list" id="shared-file-list"></div>
+            </div>
+          </div>
+
+          <!-- 3. Collaborators & Perspectives Pane -->
+          <div class="tab-pane hidden" id="users-pane">
+            <div class="collaborators-container">
+              <div style="font-size: 0.74rem; color: var(--text-muted); line-height: 1.4; padding: 4px 6px;">
+                💡 <strong>Spotlight Perspective:</strong> Click "Follow" on any user to jump your whiteboard to their exact cursor view in real time.
+              </div>
+              <div id="collaborators-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Mobile Floating Action Button (FAB) for quick 1-tap thumb access -->
+  <button class="mobile-chat-fab" id="mobile-chat-fab" title="Open Chat, Files & Users">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>
+    <span class="badge-counter" id="fab-unread-badge" style="display: none;">0</span>
+  </button>
+
+  <!-- Mobile Drawer Backdrop Overlay -->
+  <div class="sidebar-backdrop hidden" id="sidebar-backdrop"></div>
+
+  <!-- ==========================================================================
+       MODALS: Join Room, Timer Settings, and Pro Multi-Format Exporter
+       ========================================================================== -->
+
+  <!-- Modal 1: Join / Create Room -->
+  <div class="modal-backdrop hidden" id="join-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Welcome to Synapse Room</h3>
+      </div>
+      <div class="modal-body">
+        <p class="form-note">
+          Instantly collaborate across phones, laptops, and desktops on a live Figma whiteboard, WhatsApp chat, and 5GB+ on-demand P2P file stream.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="modal-username-input">Your Display Name</label>
+          <input type="text" class="form-input" id="modal-username-input" placeholder="e.g. Alex River">
+        </div>
+
+        <div class="form-group" style="margin-top: 6px;">
+          <button class="btn-primary" id="modal-create-room-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Create New Room</span>
+          </button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; margin: 4px 0;">
+          <div style="flex: 1; height: 1px; background: var(--border-subtle);"></div>
+          <span style="font-size: 0.72rem; color: var(--text-muted);">OR JOIN EXISTING</span>
+          <div style="flex: 1; height: 1px; background: var(--border-subtle);"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="modal-roomcode-input">Room Code</label>
+          <input type="text" class="form-input" id="modal-roomcode-input" placeholder="e.g. ROOM-7429" style="text-transform: uppercase;">
+        </div>
+
+        <button class="btn-secondary" id="modal-join-room-btn">Join Room</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Sprint Timer Settings -->
+  <div class="modal-backdrop hidden" id="timer-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Session Sprint Timer</h3>
+        <button class="modal-close-btn modal-close-trigger">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="form-note">Set a synchronized sprint or Pomodoro duration for all room participants.</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <button class="btn-secondary timer-preset-btn" data-mins="15">⚡ 15 Mins (Standup)</button>
+          <button class="btn-secondary timer-preset-btn" data-mins="25">🍅 25 Mins (Pomodoro)</button>
+          <button class="btn-secondary timer-preset-btn" data-mins="45">🎯 45 Mins (Sprint)</button>
+          <button class="btn-secondary timer-preset-btn" data-mins="60">🚀 60 Mins (Workshop)</button>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label class="form-label" for="timer-custom-input">Custom Duration (Minutes)</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="number" class="form-input" id="timer-custom-input" min="1" max="180" value="30" style="width: 100px;">
+            <button class="btn-primary" id="timer-custom-set-btn" style="flex: 1;">Set Custom Timer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Pro Multi-Format Exporter (Figma / Miro / Canva Grade) -->
+  <div class="modal-backdrop hidden" id="export-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Pro Export & Backup Suite</h3>
+        <button class="modal-close-btn modal-close-trigger">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Section 1: High Resolution Raster Export -->
+        <div class="export-grid-section">
+          <div class="export-section-title">1. High-Resolution Raster Image (PNG)</div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.8rem; margin-bottom: 4px;">
+            <input type="checkbox" id="export-transparent-bg">
+            <label for="export-transparent-bg" style="cursor: pointer;">Transparent background (no canvas grid)</label>
+          </div>
+          <div class="export-btn-row">
+            <button class="btn-secondary" id="export-png-1x" style="flex: 1;">1x Standard</button>
+            <button class="btn-secondary" id="export-png-2x" style="flex: 1; border-color: var(--primary);">2x Retina HD</button>
+            <button class="btn-secondary" id="export-png-3x" style="flex: 1;">3x Print Ultra</button>
+          </div>
+        </div>
+
+        <!-- Section 2: Vector Graphic Export -->
+        <div class="export-grid-section" style="margin-top: 8px;">
+          <div class="export-section-title">2. Infinite-Scale Vector Graphic (SVG)</div>
+          <button class="btn-secondary" id="export-svg-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+            <span>Download Vector SVG File</span>
+          </button>
+        </div>
+
+        <!-- Section 3: Board State Backup & Restore -->
+        <div class="export-grid-section" style="margin-top: 8px;">
+          <div class="export-section-title">3. Board Backup & Restore (.json)</div>
+          <div class="export-btn-row">
+            <button class="btn-secondary" id="export-board-json-btn" style="flex: 1;">
+              <span>💾 Save Board (.json)</span>
+            </button>
+            <button class="btn-secondary" id="import-board-json-btn" style="flex: 1;">
+              <span>📂 Load Board</span>
+            </button>
+            <input type="file" id="import-board-file-input" accept=".json" style="display: none;">
+          </div>
+        </div>
+
+        <!-- Section 4: Meeting Notes & Transcript Summary -->
+        <div class="export-grid-section" style="margin-top: 8px;">
+          <div class="export-section-title">4. Meeting Summary & Transcript (.md)</div>
+          <button class="btn-primary" id="export-summary-md-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span>Export Meeting Notes & Chat Summary (.md)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Global Public TLS MQTT over WSS (Enables instant cross-device sync on GitHub Pages / Vercel with zero-config) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+  <!-- Application Scripts -->
+  <script src="js/sync.js"></script>
+  <script src="js/whiteboard.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/files.js"></script>
+  <script src="js/timer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
