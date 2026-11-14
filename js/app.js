@@ -50,11 +50,8 @@ class SynapseApp {
       urlRoom = params.get('room');
     }
 
-    if (urlRoom) {
-      this.joinRoom(urlRoom);
-    } else {
-      this.showJoinModal();
-    }
+    // Explicit Room Gate: Always show gate; prefill room code if shared via link
+    this.showJoinModal(urlRoom);
   }
 
   joinRoom(roomId) {
@@ -86,6 +83,29 @@ class SynapseApp {
     this.showToast(`✨ Connected to room: ${this.roomId}`);
   }
 
+  leaveRoom() {
+    if (this.roomId) {
+      window.synapseSync.leave();
+    }
+    this.roomId = null;
+    window.location.hash = '';
+    history.replaceState(null, '', window.location.pathname);
+
+    const roomText = document.getElementById('current-room-id');
+    if (roomText) roomText.textContent = 'CONNECTING...';
+
+    if (this.whiteboard) {
+      this.whiteboard.clearCanvas(false);
+      this.whiteboard = null;
+    }
+
+    this.updateAvatarStack([]);
+    this.updateCollaboratorsList([]);
+
+    this.showJoinModal();
+    this.showToast('🚪 Logged out from room');
+  }
+
   initUI() {
     // Top Bar Invite Link Button
     document.getElementById('copy-room-link-btn')?.addEventListener('click', () => {
@@ -108,6 +128,13 @@ class SynapseApp {
 
     const savedTheme = localStorage.getItem('synapse_theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
+
+    // Exit / Logout Room Button
+    document.getElementById('exit-room-btn')?.addEventListener('click', () => {
+      if (confirm('Leave this room and return to the room gate?')) {
+        this.leaveRoom();
+      }
+    });
 
     // Right Sidebar & Mobile Drawer Toggles
     const sidebar = document.getElementById('sidebar-drawer');
@@ -352,8 +379,17 @@ class SynapseApp {
     });
   }
 
-  showJoinModal() {
-    document.getElementById('join-modal')?.classList.remove('hidden');
+  showJoinModal(prefilledCode = null) {
+    const modal = document.getElementById('join-modal');
+    const roomInput = document.getElementById('modal-roomcode-input');
+    const nameInput = document.getElementById('modal-username-input');
+
+    if (modal) modal.classList.remove('hidden');
+    if (nameInput) nameInput.value = this.user.name;
+
+    if (prefilledCode && roomInput) {
+      roomInput.value = prefilledCode.toUpperCase();
+    }
   }
 
   updateAvatarStack(peerList) {

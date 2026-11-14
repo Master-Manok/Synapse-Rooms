@@ -37,6 +37,7 @@ class SynapseWhiteboard {
     // Canvas Data Models
     this.elements = [];                 // Completed vector strokes & shapes
     this.remoteLiveStrokes = new Map(); // Live in-progress strokes from peers
+    this.remoteShapePreviews = new Map(); // Live in-progress shapes from peers (Circle, Rect, etc.)
     this.stickyNotes = new Map();       // id -> sticky note data
     this.textBlocks = new Map();        // id -> text block data
     this.hyperlinks = new Map();        // id -> hyperlink card data
@@ -257,22 +258,30 @@ class SynapseWhiteboard {
 
     if (this.tool === 'brush' || this.tool === 'highlighter') {
       if (this.currentShape) {
-        this.currentShape.points.push({ x, y });
-        this.redraw();
-        this.sync.broadcast('whiteboard:stroke_live', {
-          id: this.currentShape.id,
-          type: this.currentShape.type,
-          point: { x, y },
-          color: this.currentShape.color,
-          width: this.currentShape.width,
-          alpha: this.currentShape.alpha
-        });
+        const lastPt = this.currentShape.points[this.currentShape.points.length - 1];
+        // Decimate points closer than 2.0px to eliminate micro-jitter and packet clustering
+        if (!lastPt || Math.hypot(x - lastPt.x, y - lastPt.y) >= 2.0) {
+          this.currentShape.points.push({ x, y });
+          this.redraw();
+          this.sync.broadcast('whiteboard:stroke_live', {
+            id: this.currentShape.id,
+            type: this.currentShape.type,
+            point: { x, y },
+            color: this.currentShape.color,
+            width: this.currentShape.width,
+            alpha: this.currentShape.alpha
+          });
+        }
       }
     } else if (['rectangle', 'ellipse', 'line', 'arrow'].includes(this.tool)) {
       if (this.currentShape) {
         this.currentShape.endX = x;
         this.currentShape.endY = y;
         this.redraw();
+        // Live shape broadcast: Remote peers see the circle or rectangle expanding in real time!
+        this.sync.broadcast('whiteboard:shape_preview', {
+          shape: this.currentShape
+        });
       }
     } else if (this.tool === 'eraser') {
       this.eraseAt(x, y);
@@ -289,6 +298,54 @@ class SynapseWhiteboard {
     this.isDrawing = false;
 
     if (this.currentShape) {
+      // QuickShape Recognition: Automatically snap rough hand-drawn circles into perfect geometric circles
+      if (this.currentShape.type === 'brush' && this.currentShape.points.length >= 10) {
+        const pts = this.currentShape.points;
+        const start = pts[0];
+        const end = pts[pts.length - 1];
+        const distStartEnd = Math.hypot(start.x - end.x, start.y - end.y);
+
+        let sumX = 0, sumY = 0;
+        pts.forEach(p => { sumX += p.x; sumY += p.y; });
+        const cx = sumX / pts.length;
+        const cy = sumY / pts.length;
+
+        let sumR = 0;
+        const dists = pts.map(p => {
+          const r = Math.hypot(p.x - cx, p.y - cy);
+          sumR += r;
+          return r;
+        });
+        const meanR = sumR / pts.length;
+
+        let varR = 0;
+        dists.forEach(r => { varR += (r - meanR) ** 2; });
+        const stdR = Math.sqrt(varR / pts.length);
+        const coeffVar = stdR / meanR;
+
+        // If closed loop and low radial variance, snap into geometric ellipse
+        if (distStartEnd < meanR * 0.8 && coeffVar < 0.24 && meanR > 14) {
+          let minX = pts[0].x, maxX = pts[0].x, minY = pts[0].y, maxY = pts[0].y;
+          pts.forEach(p => {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+          });
+          this.currentShape = {
+            id: this.currentShape.id,
+            type: 'ellipse',
+            startX: minX,
+            startY: minY,
+            endX: maxX,
+            endY: maxY,
+            color: this.currentShape.color,
+            width: this.currentShape.width
+          };
+          window.synapseApp?.showToast('✨ Snapped to geometric circle');
+        }
+      }
+
       this.elements.push(this.currentShape);
       this.undoStack.push({ type: 'add', element: this.currentShape });
       this.redoStack = [];
@@ -646,6 +703,7 @@ class SynapseWhiteboard {
 
     for (const elem of this.elements) this.renderElement(ctx, elem);
     for (const remoteElem of this.remoteLiveStrokes.values()) this.renderElement(ctx, remoteElem);
+    for (const remoteShape of this.remoteShapePreviews.values()) this.renderElement(ctx, remoteShape);
     if (this.currentShape) this.renderElement(ctx, this.currentShape);
 
     ctx.restore();
@@ -667,15 +725,31 @@ class SynapseWhiteboard {
         ctx.beginPath();
         ctx.arc(points[0].x, points[0].y, elem.width / 2, 0, Math.PI * 2);
         ctx.fill();
-      } else {
+      } else if (points.length === 2) {
         ctx.beginPath();
         ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length - 1; i++) {
-          const xc = (points[i].x + points[i + 1].x) / 2;
-          const yc = (points[i].y + points[i + 1].y) / 2;
-          ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        ctx.lineTo(points[1].x, points[1].y);
+        ctx.stroke();
+      } else {
+        // Catmull-Rom Spline to Cubic Bezier curve interpolation
+        // Eliminates discrete point jitter and preserves continuous, organic curves
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        const tension = 0.55;
+
+        for (let i = 0; i < points.length - 1; i++) {
+          const p0 = i > 0 ? points[i - 1] : points[i];
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const p3 = i < points.length - 2 ? points[i + 2] : p2;
+
+          const cp1x = p1.x + ((p2.x - p0.x) / 6) * tension;
+          const cp1y = p1.y + ((p2.y - p0.y) / 6) * tension;
+          const cp2x = p2.x - ((p3.x - p1.x) / 6) * tension;
+          const cp2y = p2.y - ((p3.y - p1.y) / 6) * tension;
+
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
         }
-        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
         ctx.stroke();
       }
     } else if (elem.type === 'rectangle') {
@@ -1009,9 +1083,22 @@ class SynapseWhiteboard {
       this.redraw();
     });
 
-    this.sync.on('whiteboard:element_added', (payload) => {
+    // Remote peer is dragging a live shape (Circle, Rect, Arrow, Line)
+    this.sync.on('whiteboard:shape_preview', (payload, senderId) => {
+      if (payload.shape) {
+        this.remoteShapePreviews.set(senderId, payload.shape);
+        this.redraw();
+      }
+    });
+
+    this.sync.on('whiteboard:element_added', (payload, senderId) => {
       if (payload.element) {
         this.remoteLiveStrokes.delete(payload.element.id);
+        if (senderId) this.remoteShapePreviews.delete(senderId);
+        // Clear all shape previews with same ID if any
+        for (const [sId, s] of this.remoteShapePreviews.entries()) {
+          if (s.id === payload.element.id) this.remoteShapePreviews.delete(sId);
+        }
         if (!this.elements.some(e => e.id === payload.element.id)) {
           this.elements.push(payload.element);
           this.redraw();

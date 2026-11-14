@@ -385,6 +385,15 @@ button {
   color: #fff;
 }
 
+.icon-btn.exit-btn {
+  color: var(--accent-danger);
+}
+
+.icon-btn.exit-btn:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
 /* ==========================================================================
    Workspace Stage (Canvas)
    ========================================================================== */
@@ -1335,8 +1344,14 @@ button {
 /* 2. Tablets and Large Mobile (max-width: 768px) */
 @media (max-width: 768px) {
   .top-bar {
-    padding: 0 10px;
+    padding: 0 8px;
     height: 52px;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .top-bar::-webkit-scrollbar {
+    display: none;
   }
 
   .logo-badge span {
@@ -1347,17 +1362,23 @@ button {
   .timers-center-group {
     position: static;
     transform: none;
-    margin: 0 auto;
-    gap: 6px;
+    margin: 0 4px;
+    gap: 4px;
   }
 
   .call-timer-badge {
-    padding: 3px 8px;
-    font-size: 0.75rem;
+    padding: 3px 6px;
+    font-size: 0.72rem;
   }
 
+  /* Compact sprint timer on mobile */
   .timer-container {
-    padding: 3px 8px;
+    padding: 3px 6px;
+    gap: 4px;
+  }
+  .timer-container .timer-ring-wrapper,
+  .timer-container #timer-reset-btn {
+    display: none; /* Streamline controls on mobile to prevent overflow */
   }
 
   .avatar-stack {
@@ -1368,20 +1389,24 @@ button {
     display: none;
   }
 
-  /* Canvas Stage */
+  /* Canvas Stage Top HUD: Sits neatly below top-bar with zero overlap */
   .canvas-hud-top {
-    top: 10px;
-    left: 10px;
-    padding: 2px 4px;
+    top: 60px;
+    left: 8px;
+    padding: 3px 6px;
+    gap: 4px;
   }
   .hud-btn span {
     display: none; /* Icon-only on mobile */
+  }
+  .hud-separator {
+    display: none;
   }
 
   /* Floating Bottom Toolbar on Mobile */
   .floating-toolbar {
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    max-width: 94vw;
+    max-width: calc(100vw - 16px);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
@@ -1453,16 +1478,16 @@ button {
     display: none;
   }
 
-  /* Mobile FAB for quick 1-tap thumb access */
+  /* Mobile FAB positioned safely above toolbar with zero collision */
   .mobile-chat-fab {
     display: flex;
     align-items: center;
     justify-content: center;
     position: fixed;
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-    right: 16px;
-    width: 48px;
-    height: 48px;
+    bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+    right: 14px;
+    width: 46px;
+    height: 46px;
     border-radius: 50%;
     background: var(--accent-wa);
     color: #fff;
@@ -1488,19 +1513,28 @@ button {
 /* 3. Small Mobile Phones (max-width: 480px) */
 @media (max-width: 480px) {
   .room-id-text {
-    max-width: 75px;
+    max-width: 65px;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
   }
 
   .copy-room-btn span {
     display: none; /* Show only icon on tiny screens */
   }
 
-  .timer-display {
-    font-size: 0.8rem;
-    min-width: 38px;
+  .timer-container {
+    display: none; /* On tiny phones, show only the call timer badge in top bar */
+  }
+
+  .call-timer-badge {
+    padding: 2px 6px;
+    font-size: 0.7rem;
+  }
+
+  .icon-btn {
+    width: 30px;
+    height: 30px;
   }
 
   .modal-card {
