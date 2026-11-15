@@ -16,6 +16,7 @@ class SynapseSyncEngine {
     this.peers = new Map();     // peerId -> { id, name, color, lastSeen }
     this.heartbeatTimer = null;
     this.seenMessageIds = new Set(); // Prevent loopback/duplicate handling
+    this.outboundQueue = [];        // Reliable delivery buffer for reconnects
 
     // List of public high-availability TLS MQTT brokers (Port 8084 / 8884 WSS)
     this.brokerList = [
@@ -84,8 +85,17 @@ class SynapseSyncEngine {
         this.updateSyncBadge(true);
         this.mqttClient.subscribe(topic, { qos: 0 }, (err) => {
           if (!err) {
-            // Announce join to global peers
+            // Announce join to global peers and request board state
             this.broadcast('peer:join', { user: this.user });
+            this.broadcast('whiteboard:request_sync', { user: this.user });
+
+            // Flush reliable queued messages
+            while (this.outboundQueue.length > 0) {
+              const env = this.outboundQueue.shift();
+              try {
+                this.mqttClient.publish(topic, JSON.stringify(env), { qos: 0 });
+              } catch (e) {}
+            }
           }
         });
       });
@@ -161,6 +171,13 @@ class SynapseSyncEngine {
         const topic = `synapse/v2/rooms/${this.roomId}`;
         this.mqttClient.publish(topic, JSON.stringify(envelope), { qos: 0 });
       } catch (err) {}
+    } else {
+      // Store critical state-changing messages in outbound queue to deliver on reconnection
+      const isTransient = ['cursor:move', 'whiteboard:stroke_chunk', 'whiteboard:stroke_live', 'whiteboard:shape_preview'].includes(type);
+      if (!isTransient) {
+        this.outboundQueue.push(envelope);
+        if (this.outboundQueue.length > 80) this.outboundQueue.shift();
+      }
     }
   }
 
@@ -245,6 +262,10 @@ class SynapseSyncEngine {
         this.emit('peers:updated', Array.from(this.peers.values()));
       }
     }, 4000);
+  }
+
+  requestRoomState() {
+    this.broadcast('whiteboard:request_sync', { user: this.user });
   }
 
   leave() {

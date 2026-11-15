@@ -46,6 +46,12 @@ class SynapseWhiteboard {
     this.undoStack = [];
     this.redoStack = [];
 
+    // Live Streaming & Micro-Task Throttling
+    this.streamLastSentIndex = 0;
+    this.lastStrokeBroadcastTime = 0;
+    this.lastShapeBroadcastTime = 0;
+    this.lastCursorBroadcastTime = 0;
+
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
     this.bindEvents();
@@ -53,19 +59,21 @@ class SynapseWhiteboard {
   }
 
   resizeCanvas() {
-    const rect = this.canvas.parentElement.getBoundingClientRect();
+    const stage = this.canvas.parentElement;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
     this.width = rect.width;
     this.height = rect.height;
 
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
+    this.canvas.width = Math.round(rect.width * dpr);
+    this.canvas.height = Math.round(rect.height * dpr);
     this.canvas.style.width = `${rect.width}px`;
     this.canvas.style.height = `${rect.height}px`;
 
-    this.ctx.scale(dpr, dpr);
     this.redraw();
+    this.updateAllOverlayPositions();
   }
 
   screenToCanvas(screenX, screenY) {
@@ -206,14 +214,18 @@ class SynapseWhiteboard {
     this.isDrawing = true;
 
     if (this.tool === 'brush' || this.tool === 'highlighter') {
+      const initialPt = { x, y };
       this.currentShape = {
         id: 'elem_' + Math.random().toString(36).substring(2, 9),
         type: this.tool,
-        points: [{ x, y }],
+        points: [initialPt],
         color: this.strokeColor,
         width: this.tool === 'highlighter' ? this.strokeWidth * 3.5 : this.strokeWidth,
         alpha: this.tool === 'highlighter' ? 0.35 : 1.0
       };
+      this.streamLastSentIndex = 0;
+      this.lastStrokeBroadcastTime = Date.now();
+      this.flushStrokeChunk(true);
     } else if (['rectangle', 'ellipse', 'line', 'arrow'].includes(this.tool)) {
       this.currentShape = {
         id: 'elem_' + Math.random().toString(36).substring(2, 9),
@@ -242,7 +254,13 @@ class SynapseWhiteboard {
   }
 
   onPointerMove(e) {
-    this.broadcastCursor(e.clientX, e.clientY);
+    const now = Date.now();
+
+    // 1. Throttled multiplayer cursor broadcast (at most every 50ms = 20fps)
+    if (!this.lastCursorBroadcastTime || now - this.lastCursorBroadcastTime >= 50) {
+      this.broadcastCursor(e.clientX, e.clientY);
+      this.lastCursorBroadcastTime = now;
+    }
 
     if (this.isPanning) {
       this.panX = e.clientX - this.startPan.x;
@@ -252,36 +270,35 @@ class SynapseWhiteboard {
       return;
     }
 
-    if (!this.isDrawing) return;
+    if (!this.isDrawing || !this.currentShape) return;
 
     const { x, y } = this.screenToCanvas(e.clientX, e.clientY);
 
     if (this.tool === 'brush' || this.tool === 'highlighter') {
-      if (this.currentShape) {
-        const lastPt = this.currentShape.points[this.currentShape.points.length - 1];
-        // Decimate points closer than 2.0px to eliminate micro-jitter and packet clustering
-        if (!lastPt || Math.hypot(x - lastPt.x, y - lastPt.y) >= 2.0) {
-          this.currentShape.points.push({ x, y });
-          this.redraw();
-          this.sync.broadcast('whiteboard:stroke_live', {
-            id: this.currentShape.id,
-            type: this.currentShape.type,
-            point: { x, y },
-            color: this.currentShape.color,
-            width: this.currentShape.width,
-            alpha: this.currentShape.alpha
-          });
+      const pts = this.currentShape.points;
+      const lastPt = pts[pts.length - 1];
+      // Sample points with 1.5px distance threshold for organic, continuous spline curves
+      if (!lastPt || Math.hypot(x - lastPt.x, y - lastPt.y) >= 1.5) {
+        pts.push({ x, y });
+        this.redraw();
+
+        // Throttled stream chunk broadcast (~28 fps, 35ms interval)
+        if (now - this.lastStrokeBroadcastTime >= 35) {
+          this.flushStrokeChunk(false);
+          this.lastStrokeBroadcastTime = now;
         }
       }
     } else if (['rectangle', 'ellipse', 'line', 'arrow'].includes(this.tool)) {
-      if (this.currentShape) {
-        this.currentShape.endX = x;
-        this.currentShape.endY = y;
-        this.redraw();
-        // Live shape broadcast: Remote peers see the circle or rectangle expanding in real time!
+      this.currentShape.endX = x;
+      this.currentShape.endY = y;
+      this.redraw();
+
+      // Throttled live shape broadcast (~25 fps, 40ms interval)
+      if (!this.lastShapeBroadcastTime || now - this.lastShapeBroadcastTime >= 40) {
         this.sync.broadcast('whiteboard:shape_preview', {
           shape: this.currentShape
         });
+        this.lastShapeBroadcastTime = now;
       }
     } else if (this.tool === 'eraser') {
       this.eraseAt(x, y);
@@ -298,6 +315,9 @@ class SynapseWhiteboard {
     this.isDrawing = false;
 
     if (this.currentShape) {
+      // Flush any remaining buffered points before finalizing
+      this.flushStrokeChunk(false);
+
       // QuickShape Recognition: Automatically snap rough hand-drawn circles into perfect geometric circles
       if (this.currentShape.type === 'brush' && this.currentShape.points.length >= 10) {
         const pts = this.currentShape.points;
@@ -349,10 +369,34 @@ class SynapseWhiteboard {
       this.elements.push(this.currentShape);
       this.undoStack.push({ type: 'add', element: this.currentShape });
       this.redoStack = [];
+
+      // Broadcast finalized element to all peers with guaranteed delivery
       this.sync.broadcast('whiteboard:element_added', { element: this.currentShape });
       this.currentShape = null;
       this.redraw();
     }
+  }
+
+  flushStrokeChunk(isFirst = false) {
+    if (!this.currentShape || !this.currentShape.points) return;
+    const allPts = this.currentShape.points;
+    if (allPts.length === 0) return;
+
+    if (this.streamLastSentIndex >= allPts.length && !isFirst) return;
+
+    const slice = allPts.slice(this.streamLastSentIndex);
+    if (slice.length === 0 && !isFirst) return;
+
+    this.sync.broadcast('whiteboard:stroke_chunk', {
+      id: this.currentShape.id,
+      type: this.currentShape.type,
+      points: slice,
+      color: this.currentShape.color,
+      width: this.currentShape.width,
+      alpha: this.currentShape.alpha,
+      isFirst: isFirst || this.streamLastSentIndex === 0
+    });
+    this.streamLastSentIndex = allPts.length;
   }
 
   onWheel(e) {
@@ -394,6 +438,86 @@ class SynapseWhiteboard {
     this.redraw();
     this.updateAllOverlayPositions();
     this.updateZoomDisplay();
+  }
+
+  /**
+   * Fit all drawings and canvas elements to the current device's screen size
+   * Ensures mobile/tablet/desktop users see the complete sketch automatically.
+   */
+  fitToScreen(padding = 50) {
+    if (this.elements.length === 0 && this.stickyNotes.size === 0 && this.textBlocks.size === 0 && this.hyperlinks.size === 0) {
+      this.resetZoom();
+      return;
+    }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    // Measure vector elements
+    for (const el of this.elements) {
+      if (el.points && el.points.length > 0) {
+        for (const p of el.points) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+      } else if (el.startX !== undefined) {
+        const x1 = Math.min(el.startX, el.endX);
+        const x2 = Math.max(el.startX, el.endX);
+        const y1 = Math.min(el.startY, el.endY);
+        const y2 = Math.max(el.startY, el.endY);
+        if (x1 < minX) minX = x1;
+        if (x2 > maxX) maxX = x2;
+        if (y1 < minY) minY = y1;
+        if (y2 > maxY) maxY = y2;
+      }
+    }
+
+    // Measure overlays
+    for (const note of this.stickyNotes.values()) {
+      if (note.x < minX) minX = note.x;
+      if (note.x + 200 > maxX) maxX = note.x + 200;
+      if (note.y < minY) minY = note.y;
+      if (note.y + 180 > maxY) maxY = note.y + 180;
+    }
+    for (const text of this.textBlocks.values()) {
+      if (text.x < minX) minX = text.x;
+      if (text.x + 250 > maxX) maxX = text.x + 250;
+      if (text.y < minY) minY = text.y;
+      if (text.y + 100 > maxY) maxY = text.y + 100;
+    }
+    for (const link of this.hyperlinks.values()) {
+      if (link.x < minX) minX = link.x;
+      if (link.x + 260 > maxX) maxX = link.x + 260;
+      if (link.y < minY) minY = link.y;
+      if (link.y + 80 > maxY) maxY = link.y + 80;
+    }
+
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
+      this.resetZoom();
+      return;
+    }
+
+    const contentWidth = Math.max(maxX - minX, 40);
+    const contentHeight = Math.max(maxY - minY, 40);
+
+    const availableWidth = Math.max(this.width - padding * 2, 100);
+    const availableHeight = Math.max(this.height - padding * 2, 100);
+
+    let targetScale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight);
+    targetScale = Math.min(Math.max(targetScale, this.minScale), 1.25);
+
+    const contentCenterX = (minX + maxX) / 2;
+    const contentCenterY = (minY + maxY) / 2;
+
+    this.scale = targetScale;
+    this.panX = (this.width / 2) - contentCenterX * targetScale;
+    this.panY = (this.height / 2) - contentCenterY * targetScale;
+
+    this.redraw();
+    this.updateAllOverlayPositions();
+    this.updateZoomDisplay();
+    window.synapseApp?.showToast(`🔍 View adapted to screen (${Math.round(this.scale * 100)}%)`);
   }
 
   updateZoomDisplay() {
@@ -692,12 +816,14 @@ class SynapseWhiteboard {
   // --- Rendering Loop ---
   redraw() {
     const ctx = this.ctx;
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.restore();
+    const dpr = window.devicePixelRatio || 1;
 
     ctx.save();
+    // 1. Reset transform to device physical pixels and clear entire buffer
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.width, this.height);
+
+    // 2. Apply viewport Pan and Zoom
     ctx.translate(this.panX, this.panY);
     ctx.scale(this.scale, this.scale);
 
@@ -1065,7 +1191,31 @@ class SynapseWhiteboard {
 
   // --- Sync Listeners ---
   bindSyncEvents() {
+    // 1. High-performance streaming stroke chunk
+    this.sync.on('whiteboard:stroke_chunk', (data) => {
+      if (!data || !data.id || !Array.isArray(data.points)) return;
+      let stroke = this.remoteLiveStrokes.get(data.id);
+      if (!stroke || data.isFirst) {
+        stroke = {
+          id: data.id,
+          type: data.type,
+          points: [...data.points],
+          color: data.color,
+          width: data.width,
+          alpha: data.alpha,
+          updatedAt: Date.now()
+        };
+        this.remoteLiveStrokes.set(data.id, stroke);
+      } else {
+        stroke.points.push(...data.points);
+        stroke.updatedAt = Date.now();
+      }
+      this.redraw();
+    });
+
+    // 2. Fallback single-point stroke handler
     this.sync.on('whiteboard:stroke_live', (data) => {
+      if (!data || !data.id || !data.point) return;
       let stroke = this.remoteLiveStrokes.get(data.id);
       if (!stroke) {
         stroke = {
@@ -1074,44 +1224,89 @@ class SynapseWhiteboard {
           points: [data.point],
           color: data.color,
           width: data.width,
-          alpha: data.alpha
+          alpha: data.alpha,
+          updatedAt: Date.now()
         };
         this.remoteLiveStrokes.set(data.id, stroke);
       } else {
         stroke.points.push(data.point);
+        stroke.updatedAt = Date.now();
       }
       this.redraw();
     });
 
-    // Remote peer is dragging a live shape (Circle, Rect, Arrow, Line)
+    // 3. Remote peer live shape dragging (Rect, Circle, Arrow, Line)
     this.sync.on('whiteboard:shape_preview', (payload, senderId) => {
-      if (payload.shape) {
+      if (payload && payload.shape) {
+        payload.shape.updatedAt = Date.now();
         this.remoteShapePreviews.set(senderId, payload.shape);
         this.redraw();
       }
     });
 
+    // 4. Finalized element completed
     this.sync.on('whiteboard:element_added', (payload, senderId) => {
-      if (payload.element) {
-        this.remoteLiveStrokes.delete(payload.element.id);
+      if (payload && payload.element) {
+        const el = payload.element;
+        this.remoteLiveStrokes.delete(el.id);
         if (senderId) this.remoteShapePreviews.delete(senderId);
-        // Clear all shape previews with same ID if any
         for (const [sId, s] of this.remoteShapePreviews.entries()) {
-          if (s.id === payload.element.id) this.remoteShapePreviews.delete(sId);
+          if (s.id === el.id) this.remoteShapePreviews.delete(sId);
         }
-        if (!this.elements.some(e => e.id === payload.element.id)) {
-          this.elements.push(payload.element);
-          this.redraw();
+        const existingIdx = this.elements.findIndex(e => e.id === el.id);
+        if (existingIdx >= 0) {
+          this.elements[existingIdx] = el;
+        } else {
+          this.elements.push(el);
         }
-      }
-    });
-
-    this.sync.on('whiteboard:state_sync', (payload) => {
-      if (payload.elements) {
-        this.elements = payload.elements;
         this.redraw();
       }
     });
+
+    // 5. Explicit sync request from joining peer
+    this.sync.on('whiteboard:request_sync', () => {
+      if (this.elements.length > 0) {
+        this.sync.broadcast('whiteboard:state_sync', { elements: this.elements });
+      }
+      for (const sticky of this.stickyNotes.values()) this.sync.broadcast('whiteboard:sticky_add', sticky);
+      for (const text of this.textBlocks.values()) this.sync.broadcast('whiteboard:text_add', text);
+      for (const link of this.hyperlinks.values()) this.sync.broadcast('whiteboard:link_add', link);
+    });
+
+    // 6. Board state sync (CRDT-style ID union, never overwrite local strokes!)
+    this.sync.on('whiteboard:state_sync', (payload) => {
+      if (Array.isArray(payload.elements)) {
+        const existingIds = new Set(this.elements.map(e => e.id));
+        let changed = false;
+        for (const el of payload.elements) {
+          if (!existingIds.has(el.id)) {
+            this.elements.push(el);
+            existingIds.add(el.id);
+            changed = true;
+          }
+        }
+        if (changed) this.redraw();
+      }
+    });
+
+    // Periodic GC for any orphaned live strokes if peer unexpectedly disconnected
+    setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      for (const [id, stroke] of this.remoteLiveStrokes.entries()) {
+        if (now - (stroke.updatedAt || now) > 10000) {
+          this.remoteLiveStrokes.delete(id);
+          changed = true;
+        }
+      }
+      for (const [sId, shape] of this.remoteShapePreviews.entries()) {
+        if (now - (shape.updatedAt || now) > 10000) {
+          this.remoteShapePreviews.delete(sId);
+          changed = true;
+        }
+      }
+      if (changed) this.redraw();
+    }, 4000);
 
     this.sync.on('whiteboard:clear', () => this.clearCanvas(false));
 

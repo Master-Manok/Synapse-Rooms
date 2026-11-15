@@ -12,6 +12,7 @@ class SynapseApp {
     this.chat = null;
     this.files = null;
     this.timer = null;
+    this.deviceManager = new DeviceManager(this);
 
     this.initUI();
     this.checkInitialRoomRoute();
@@ -66,6 +67,7 @@ class SynapseApp {
     const canvas = document.getElementById('whiteboard-canvas');
     const overlay = document.getElementById('canvas-overlay');
     this.whiteboard = new SynapseWhiteboard(canvas, overlay, window.synapseSync);
+    window.synapseSync.requestRoomState();
 
     const chatContainer = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input-text');
@@ -299,7 +301,8 @@ class SynapseApp {
     });
     document.getElementById('zoom-in-btn')?.addEventListener('click', () => this.whiteboard?.zoomAtPoint(window.innerWidth / 2, window.innerHeight / 2, 1.2));
     document.getElementById('zoom-out-btn')?.addEventListener('click', () => this.whiteboard?.zoomAtPoint(window.innerWidth / 2, window.innerHeight / 2, 0.8));
-    document.getElementById('zoom-percentage')?.addEventListener('click', () => this.whiteboard?.resetZoom());
+    document.getElementById('zoom-percentage')?.addEventListener('click', () => this.whiteboard?.fitToScreen());
+    document.getElementById('zoom-fit-btn')?.addEventListener('click', () => this.whiteboard?.fitToScreen());
   }
 
   bindExportModalActions() {
@@ -483,6 +486,80 @@ class SynapseApp {
       toast.style.transition = 'all 0.25s ease';
       setTimeout(() => toast.remove(), 250);
     }, 3200);
+  }
+}
+
+/**
+ * Device & Screen Adaptation Manager
+ * Real-time detection of device form-factor, orientation, touch capabilities, and screen sizing.
+ * Applies responsive attributes to document root and coordinates canvas reflow.
+ */
+class DeviceManager {
+  constructor(app) {
+    this.app = app;
+    this.currentDevice = 'desktop';
+    this.currentSize = 'lg';
+    this.currentOrientation = 'landscape';
+    this.init();
+  }
+
+  init() {
+    this.updateDeviceProfile();
+    window.addEventListener('resize', () => this.updateDeviceProfile());
+    window.addEventListener('orientationchange', () => {
+      setTimeout(() => this.updateDeviceProfile(), 120);
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => this.updateDeviceProfile());
+    }
+  }
+
+  updateDeviceProfile() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+    let screenClass = 'desktop';
+    if (width <= 640) {
+      screenClass = 'mobile';
+    } else if (width <= 1024) {
+      screenClass = 'tablet';
+    }
+
+    let size = 'lg';
+    if (width <= 420) size = 'xs';
+    else if (width <= 640) size = 'sm';
+    else if (width <= 1024) size = 'md';
+    else if (width <= 1440) size = 'lg';
+    else size = 'xl';
+
+    const orientation = height > width ? 'portrait' : 'landscape';
+
+    const root = document.documentElement;
+    root.setAttribute('data-device', screenClass);
+    root.setAttribute('data-size', size);
+    root.setAttribute('data-orientation', orientation);
+    root.setAttribute('data-touch', isTouch ? 'true' : 'false');
+
+    root.style.setProperty('--vh', `${height * 0.01}px`);
+    root.style.setProperty('--vw', `${width * 0.01}px`);
+
+    this.currentDevice = screenClass;
+    this.currentSize = size;
+    this.currentOrientation = orientation;
+
+    // Dynamically adjust whiteboard canvas to new viewport
+    if (this.app?.whiteboard) {
+      this.app.whiteboard.resizeCanvas();
+    }
+  }
+
+  isMobile() {
+    return this.currentDevice === 'mobile';
+  }
+
+  isTablet() {
+    return this.currentDevice === 'tablet';
   }
 }
 

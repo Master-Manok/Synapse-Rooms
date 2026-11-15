@@ -126,9 +126,12 @@ button {
   display: flex;
   flex-direction: column;
   width: 100vw;
+  width: 100dvw;
   height: 100vh;
+  height: 100dvh;
   position: relative;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* ==========================================================================
@@ -682,6 +685,21 @@ button {
   min-width: 40px;
   text-align: center;
   color: var(--text-primary);
+  cursor: pointer;
+}
+
+.zoom-level-text:hover {
+  color: var(--primary);
+}
+
+#zoom-fit-btn {
+  color: var(--accent-indigo);
+  padding: 6px 7px;
+}
+
+#zoom-fit-btn:hover {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
 }
 
 /* Figma-Style Floating Bottom Toolbar (Scrollable on small devices) */
@@ -1544,4 +1562,65 @@ button {
   .modal-body {
     padding: 16px;
   }
+}
+
+/* 4. Explicit Dynamic Device Profile Attributes (from DeviceManager) */
+[data-device="mobile"] .top-bar {
+  height: 48px;
+  padding: 0 6px;
+  gap: 4px;
+}
+
+[data-device="mobile"] .canvas-hud-top {
+  top: 54px;
+  left: 6px;
+  padding: 2px 4px;
+  gap: 2px;
+}
+
+[data-size="xs"] .tool-btn {
+  width: 31px;
+  height: 31px;
+  min-width: 31px;
+}
+
+[data-size="xs"] .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+[data-size="xs"] .room-id-text {
+  max-width: 55px;
+  font-size: 0.68rem;
+}
+
+
+/* 4. Explicit Dynamic Device Profile Attributes (from DeviceManager) */
+[data-device="mobile"] .top-bar {
+  height: 48px;
+  padding: 0 6px;
+  gap: 4px;
+}
+
+[data-device="mobile"] .canvas-hud-top {
+  top: 54px;
+  left: 6px;
+  padding: 2px 4px;
+  gap: 2px;
+}
+
+[data-size="xs"] .tool-btn {
+  width: 31px;
+  height: 31px;
+  min-width: 31px;
+}
+
+[data-size="xs"] .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+[data-size="xs"] .room-id-text {
+  max-width: 55px;
+  font-size: 0.68rem;
 }
